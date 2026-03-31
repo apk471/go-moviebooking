@@ -1,8 +1,9 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-This repository is a monorepo with a Go backend and shared TypeScript packages.
+This repository is a monorepo with a Go backend, a React frontend, and shared TypeScript packages.
 - `app/backend/`: Go API server (`cmd/go-boilerplate` entrypoint, `internal/` app code, `templates/`, `static/`).
+- `app/frontend/`: React + Vite cinema booking frontend.
 - `packages/zod`: shared Zod schemas.
 - `packages/openapi`: ts-rest contracts and OpenAPI generation.
 - `packages/emails`: React Email templates exported to backend HTML templates.
@@ -14,6 +15,8 @@ Run from repository root unless noted.
 - `bun run build`: builds all configured workspaces.
 - `bun run lint`, `bun run typecheck`: workspace linting/type checks through Turbo.
 - `cd app/backend && task run`: run the Go API locally.
+- `cd app/frontend && bun run dev`: run the React frontend locally.
+- `cd app/frontend && bun run build`: build the frontend.
 - `cd app/backend && task tidy`: `go fmt`, `go mod tidy`, and dependency verification.
 - `cd app/backend && task migrations:new name=add_users_table`: create a migration.
 - `cd app/backend && BOILERPLATE_DB_DSN=... task migrations:up`: apply migrations.
@@ -21,12 +24,14 @@ Run from repository root unless noted.
 ## Coding Style & Naming Conventions
 - Go code must pass `gofmt` and `golangci-lint` (`app/backend/.golangci.yml`).
 - Keep packages focused by layer (`handler`, `service`, `repository`, `middleware`).
+- For Echo-bound request payloads, pass pointer request structs into the generic `Handle` helpers so path/body binding works correctly.
 - Use `CamelCase` for exported Go symbols and `snake_case` file names for SQL migrations (e.g., `002_add_users.sql`).
 - TypeScript packages use strict `tsconfig` settings; keep source in `src/` and exports explicit.
 
 ## Testing Guidelines
 - Add Go tests as `*_test.go` files next to the package under test.
 - Run backend tests with `cd app/backend && go test ./...`.
+- When backend tests hit macOS cache permission issues locally, use `GOCACHE=/tmp/go-build-cache go test ./...`.
 - For changed TS packages, at minimum run `bun run typecheck` and package build commands.
 - Prefer table-driven tests for handlers/services and cover error paths (validation, DB, auth).
 
@@ -39,4 +44,5 @@ Recent history includes short messages and partial `feat:` prefixes; use clear, 
 ## Security & Configuration Tips
 - Never commit secrets; use `BOILERPLATE_*` environment variables.
 - For migration tasks, set `BOILERPLATE_DB_DSN` explicitly.
+- The booking flow depends on Redis being available at `BOILERPLATE_REDIS_ADDRESS`.
 - Validate OpenAPI output stays in sync with backend static docs (`app/backend/static/openapi.json`).
