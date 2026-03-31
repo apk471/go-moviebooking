@@ -7,15 +7,18 @@ import (
 )
 
 type Services struct {
-	Auth *AuthService
-	Job  *job.JobService
+	Auth  *AuthService
+	Job   *job.JobService
+	Movie *MovieService
 }
 
 func NewServices(s *server.Server, repos *repository.Repositories) (*Services, error) {
 	authService := NewAuthService(s)
+	movieService := NewMovieService()
 
 	return &Services{
-		Job:  s.Job,
-		Auth: authService,
+		Job:   s.Job,
+		Auth:  authService,
+		Movie: movieService,
 	}, nil
 }
