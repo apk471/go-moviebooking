@@ -1,6 +1,6 @@
-# Go Boilerplate
+# Go Movie Booking
 
-A production-ready Go backend boilerplate with Echo, PostgreSQL, Redis, background jobs, observability (New Relic), Clerk auth, typed handlers, OpenAPI docs, and shared TypeScript packages for API contracts and Zod schemas.
+A Go + Redis movie booking app with an Echo backend, a React frontend, realtime-style seat polling, timed seat holds, booking confirmation/release flows, observability (New Relic), and shared TypeScript packages for API contracts and Zod schemas.
 
 ---
 
@@ -22,6 +22,7 @@ A production-ready Go backend boilerplate with Echo, PostgreSQL, Redis, backgrou
   - [Email](#email)
   - [Validation](#validation)
 - [Packages (TypeScript)](#packages-typescript)
+- [Frontend](#frontend)
 - [Tooling](#tooling)
 - [Environment Variables](#environment-variables)
 - [Running the Project](#running-the-project)
@@ -33,11 +34,13 @@ A production-ready Go backend boilerplate with Echo, PostgreSQL, Redis, backgrou
 
 - **API framework:** [Echo v4](https://echo.labstack.com/)
 - **Database:** PostgreSQL via [pgx v5](https://github.com/jackc/pgx), [tern](https://github.com/jackc/tern) migrations
+- **Seat booking storage:** Redis ([go-redis](https://github.com/redis/go-redis)) for timed holds, confirmation, and reverse session lookup
 - **Cache/queue:** Redis ([go-redis](https://github.com/redis/go-redis)), [Asynq](https://github.com/hibiken/asynq) for background jobs
 - **Auth:** [Clerk](https://clerk.com/) via `clerk-sdk-go` (JWT/session validation, user/role/permissions in context)
 - **Config:** [Koanf](https://github.com/knadh/koanf) from env with `BOILERPLATE_` prefix, [go-playground/validator](https://github.com/go-playground/validator)
 - **Logging:** [zerolog](https://github.com/rs/zerolog) with request-scoped loggers and optional New Relic log forwarding
 - **Observability:** New Relic (APM, distributed tracing, log context, nrpgx5, nrecho, nrredis, zerolog writer)
+- **Frontend:** React 19 + Vite app in `app/frontend` for movie selection, seat maps, hold timers, and checkout actions
 - **API docs:** OpenAPI 3 generated from [ts-rest](https://ts-rest.com/) contracts in `packages/openapi`, served at `/docs` with Scalar
 - **Shared types:** Zod schemas and OpenAPI generation in `packages/zod` and `packages/openapi`
 
@@ -47,31 +50,34 @@ A production-ready Go backend boilerplate with Echo, PostgreSQL, Redis, backgrou
 
 ```
 go-boilerplate/
-├── backend/                    # Go API server
-│   ├── cmd/go-boilerplate/     # main entry
-│   ├── internal/
-│   │   ├── config/             # config structs, load, observability
-│   │   ├── database/           # pgx pool, migrations (embed)
-│   │   ├── errs/               # HTTP error types and constructors
-│   │   ├── handler/            # health, openapi, base (typed Handle/HandleNoContent/HandleFile)
-│   │   ├── lib/
-│   │   │   ├── email/          # Resend client, templates, welcome email
-│   │   │   ├── jobs/           # Asynq job service, welcome email task
-│   │   │   └── utils/          # small helpers (e.g. PrintJSON)
-│   │   ├── logger/             # zerolog + New Relic LoggerService, pgx logger
-│   │   ├── middleware/         # CORS, secure, request ID, tracing, context, auth, rate limit, recover, global error
-│   │   ├── repository/         # repository layer (currently empty struct)
-│   │   ├── router/             # Echo router, system routes registration
-│   │   ├── server/             # Server struct (config, DB, Redis, Job, HTTP server)
-│   │   ├── service/            # Auth (Clerk), Job service ref
-│   │   ├── sqlerr/             # PG error → HTTP error mapping
-│   │   └── validation/         # BindAndValidate, Validatable, tag→message mapping
-│   ├── static/                 # openapi.html, openapi.json (from packages/openapi gen)
-│   ├── templates/emails/       # HTML email templates (e.g. welcome.html)
-│   ├── Taskfile.yml            # run, migrations:new, migrations:up, tidy
-│   ├── .golangci.yml           # linter config
-│   ├── go.mod
-│   └── go.sum
+├── app/
+│   ├── backend/                # Go API server
+│   │   ├── cmd/go-boilerplate/ # main entry
+│   │   ├── internal/
+│   │   │   ├── config/         # config structs, load, observability
+│   │   │   ├── database/       # pgx pool, migrations (embed)
+│   │   │   ├── errs/           # HTTP error types and constructors
+│   │   │   ├── handler/        # health, movies, booking, openapi, base typed handlers
+│   │   │   ├── lib/
+│   │   │   │   ├── email/      # Resend client, templates, welcome email
+│   │   │   │   ├── jobs/       # Asynq job service, welcome email task
+│   │   │   │   └── utils/      # small helpers
+│   │   │   ├── logger/         # zerolog + New Relic LoggerService, pgx logger
+│   │   │   ├── middleware/     # CORS, secure, request ID, tracing, context, auth, rate limit, recover, global error
+│   │   │   ├── model/          # booking/seat response models
+│   │   │   ├── repository/     # Redis-backed booking repository
+│   │   │   ├── router/         # Echo router, system routes registration
+│   │   │   ├── server/         # Server struct (config, DB, Redis, Job, HTTP server)
+│   │   │   ├── service/        # Auth, movie catalog, booking rules
+│   │   │   ├── sqlerr/         # PG error → HTTP error mapping
+│   │   │   └── validation/     # BindAndValidate, Validatable, tag→message mapping
+│   │   ├── static/             # openapi.html, openapi.json (from packages/openapi gen)
+│   │   ├── templates/emails/   # HTML email templates (e.g. welcome.html)
+│   │   ├── Taskfile.yml        # run, migrations:new, migrations:up, tidy
+│   │   ├── .golangci.yml       # linter config
+│   │   ├── go.mod
+│   │   └── go.sum
+│   └── frontend/               # React + Vite cinema booking client
 ├── packages/
 │   ├── openapi/                # ts-rest contracts, OpenAPI 3 generation, writes openapi.json
 │   ├── zod/                    # shared Zod schemas (e.g. health response)
@@ -147,6 +153,11 @@ go-boilerplate/
 - **`internal/router/system.go`**
 
   - **GET /status** → HealthHandler.CheckHealth
+  - **GET /movies** → MovieHandler.ListMovies
+  - **GET /movies/:movieID/seats** → BookingHandler.ListSeats
+  - **POST /movies/:movieID/seats/:seatID/hold** → BookingHandler.HoldSeat
+  - **PUT /sessions/:sessionID/confirm** → BookingHandler.ConfirmSession
+  - **DELETE /sessions/:sessionID** → BookingHandler.ReleaseSession
   - **/static** → static files (e.g. openapi.json)
   - **GET /docs** → OpenAPIHandler.ServeOpenAPIUI (serves static/openapi.html, which loads /static/openapi.json and Scalar)
 
@@ -162,7 +173,7 @@ go-boilerplate/
 
 - **`internal/handler/handlers.go`**
 
-  - **Handlers** contains Health and OpenAPI. **NewHandlers** builds them from server and services.
+  - **Handlers** contains Health, Movie, Booking, and OpenAPI handlers. **NewHandlers** builds them from server and services.
 
 - **`internal/handler/base.go`**
 
@@ -178,6 +189,15 @@ go-boilerplate/
 
 - **`internal/handler/openapi.go`**
   - **ServeOpenAPIUI:** Serves `static/openapi.html` as HTML (Cache-Control: no-cache). The HTML page loads Scalar with `/static/openapi.json`.
+
+- **`internal/handler/movie.go`**
+  - **ListMovies:** Returns the in-memory movie catalog used by the frontend seat map.
+
+- **`internal/handler/booking.go`**
+  - **ListSeats:** Returns Redis-backed seat state for a movie.
+  - **HoldSeat:** Creates a 2-minute hold for an available seat.
+  - **ConfirmSession:** Converts a held seat into a confirmed booking.
+  - **ReleaseSession:** Deletes a held session and frees the seat.
 
 ### Errors
 
@@ -213,14 +233,28 @@ go-boilerplate/
 
 - **`internal/repository/repositories.go`**
 
-  - **Repositories** is an empty struct; **NewRepositories(server)** returns it. Ready for DB-backed repositories.
+  - **Repositories** currently wires a Redis-backed **BookingRepository**.
+
+- **`internal/repository/booking.go`**
+  - Stores holds and confirmations in Redis with the following key layout:
+    - `seat:{movieID}:{seatID}` → serialized booking payload
+    - `session:{sessionID}` → reverse lookup to the seat key
+  - Held seats use a 2-minute TTL; confirmed seats are persisted without expiry.
 
 - **`internal/service/services.go`**
 
-  - **Services** has Auth and Job. **NewServices(server, repos)** builds AuthService (sets Clerk key from config) and attaches server’s Job service.
+  - **Services** has Auth, Job, Movie, and Booking. **NewServices(server, repos)** builds AuthService, in-memory movie catalog, and booking service.
 
 - **`internal/service/auth.go`**
   - **AuthService** only sets **Clerk** secret key from config; actual auth is in middleware via Clerk SDK.
+
+- **`internal/service/movie.go`**
+  - Exposes the in-memory movie catalog:
+    - `inception` → 5 rows, 8 seats per row
+    - `dune` → 4 rows, 6 seats per row
+
+- **`internal/service/booking.go`**
+  - Validates movie and seat IDs, translates repository errors into HTTP-safe errors, and returns seat/session responses expected by the frontend.
 
 ### Background Jobs
 
@@ -275,11 +309,21 @@ go-boilerplate/
 - **`packages/openapi`**
 
   - **ts-rest** contract: health contract (GET /status, response ZHealthResponse). **apiContract** aggregates contracts.
-  - **generateOpenApi** with security (bearerAuth, x-service-token), operationMapper for security metadata. **gen.ts** string-replaces custom “file” type with OpenAPI binary, then writes **openapi.json** to repo and (in script) to `../../apps/backend/static/openapi.json` For this repo, add or change the output path in `packages/openapi/src/gen.ts` to `../../backend/static/openapi.json` so `/docs` loads the generated spec.
+  - **generateOpenApi** with security (bearerAuth, x-service-token), operationMapper for security metadata. **gen.ts** writes **openapi.json** for the backend docs page; keep the output path aligned with `app/backend/static/openapi.json` so `/docs` serves the latest generated spec.
   - Backend serves `/docs` with Scalar and `/static/openapi.json` so docs stay in sync when you run the openapi package gen.
 
 - **`packages/emails`**
   - Optional React-based email templates (e.g. welcome.tsx); can be used to generate or mirror HTML for backend.
+
+---
+
+## Frontend
+
+- **`app/frontend`**
+  - React 19 + Vite frontend for the cinema booking UI.
+  - Uses the backend endpoints above to load movies, poll seat status, create holds, confirm sessions, and release seats.
+  - Dev server proxies `/movies` and `/sessions` to `http://localhost:8080`.
+  - Main app lives in `src/App.tsx`; styles live in `src/styles.css`.
 
 ---
 
@@ -297,7 +341,7 @@ go-boilerplate/
   - Large set of linters (errcheck, staticcheck, gosec, revive, gocritic, etc.) with sensible limits (e.g. cyclop, funlen, gocognit). **gomodguard** blocks old uuid/protobuf modules. **exhaustruct** exclusions for std and third-party structs. **govet** with shadow strict.
 
 - **Root**
-  - **package.json** + **turbo.json**: Workspaces `apps/*`, `packages/*`; scripts: build, dev, format, lint, typecheck, clean. Turbo runs tasks with dependency order (^build, etc.).
+  - **package.json** + **turbo.json**: Workspaces `app/*`, `packages/*`; scripts: build, dev, format, lint, typecheck, clean. Turbo runs tasks with dependency order (^build, etc.).
 
 ---
 
@@ -363,20 +407,27 @@ For **Taskfile** migrations: set **BOILERPLATE_DB_DSN** (e.g. `postgres://user:p
 1. **Prerequisites:** Go 1.25+, PostgreSQL, Redis, Node/Bun for packages.
 2. **Env:** Copy or set the variables above (e.g. `.env` and use `godotenv/autoload` or export).
 3. **Backend:**
-   - From repo root: `cd backend && task run` (or `go run ./cmd/go-boilerplate`).
+   - From repo root: `cd app/backend && task run` (or `go run ./cmd/go-boilerplate`).
    - Migrations (non-local): run automatically on startup; for manual run: `BOILERPLATE_DB_DSN=... task migrations:up`.
    - New migration: `task migrations:new name=add_users_table`.
-4. **OpenAPI:** From repo root, build/openapi gen so `backend/static/openapi.json` exists (e.g. `cd packages/zod && bun run build && cd ../openapi && bun run gen` if gen writes there). Then open `http://localhost:8080/docs`.
-5. **Health:** `GET http://localhost:8080/status`.
+4. **Frontend:**
+   - From repo root: `cd app/frontend && bun install && bun run dev`.
+   - The Vite app runs on `http://localhost:3000` and proxies API requests to the backend on `http://localhost:8080`.
+5. **OpenAPI:** From repo root, build/openapi gen so `app/backend/static/openapi.json` exists (e.g. `cd packages/zod && bun run build && cd ../openapi && bun run gen` if gen writes there). Then open `http://localhost:8080/docs`.
+6. **Health:** `GET http://localhost:8080/status`.
+7. **Booking API quick checks:**
+   - `GET http://localhost:8080/movies`
+   - `GET http://localhost:8080/movies/inception/seats`
+   - `POST http://localhost:8080/movies/inception/seats/A1/hold`
 
 ---
 
 ## Extending the Boilerplate
 
 - **New route:** Add to `router/system.go` or a versioned group in `router/router.go`; use `middlewares.Auth.RequireAuth(next)` for protected routes.
-- **New handler:** Implement handler func with request/response types implementing **Validatable** where needed; register with **Handle**, **HandleNoContent**, or **HandleFile** from `handler/base.go`.
-- **New migration:** `task migrations:new name=your_change` in `backend`, then edit the new file under `internal/database/migrations/`.
+- **New handler:** Implement handler func with request/response types implementing **Validatable** where needed; for Echo-bound request payloads, pass pointer request structs into **Handle**, **HandleNoContent**, or **HandleFile** from `handler/base.go`.
+- **New migration:** `task migrations:new name=your_change` in `app/backend`, then edit the new file under `internal/database/migrations/`.
 - **New job:** Define task type and payload in `internal/lib/jobs`, add handler in `job.go` (mux.HandleFunc), enqueue via `Job.Client.Enqueue(...)` from services/handlers.
 - **New email template:** Add template name in `internal/lib/email/template.go`, HTML in `templates/emails/`, and send method in `internal/lib/email/`.
-- **OpenAPI:** Add contract in `packages/openapi/src/contracts/`, add Zod types in `packages/zod`, run openapi package gen and copy/openapi.json to `backend/static/` if needed.
+- **OpenAPI:** Add contract in `packages/openapi/src/contracts/`, add Zod types in `packages/zod`, run openapi package gen and copy/openapi.json to `app/backend/static/` if needed.
 - **Config:** Add fields to `config.Config` or `ObservabilityConfig` and corresponding env vars with `BOILERPLATE_` prefix.
